@@ -1,0 +1,98 @@
+import pandas as pd
+import os
+
+# Define the folder path containing the files
+folder_path = r"C:\Users\laura.mcmanus23\Downloads\Matchhalves"
+
+# Initialize an empty list to store results
+results = []
+
+# Loop through all files in the folder
+for filename in os.listdir(folder_path):
+    if filename.endswith(".csv"):
+        file_path = os.path.join(folder_path, filename)
+
+        try:
+            df = pd.read_csv(file_path)
+
+            initial_rows = len(df)
+
+            # Filter for valid rows (clean GPS)
+            df_cleaned = df[(df['hdop'] <= 2) & (df['speed'] <= 10)]
+
+            removed_rows = initial_rows - len(df_cleaned)
+            percentage_removed = (removed_rows / initial_rows) * 100
+
+            max_speed = df['speed'].max()
+
+            # Ensure 'time' is datetime
+            df_cleaned['time'] = pd.to_datetime(df_cleaned['time'], errors='coerce')
+            df_cleaned = df_cleaned.dropna(subset=['time'])
+
+            # Compute time differences in seconds
+            df_cleaned = df_cleaned.sort_values('time')
+            df_cleaned['time_diff'] = df_cleaned['time'].diff().dt.total_seconds()
+            df_cleaned['time_diff'].fillna(0, inplace=True)
+
+            # Compute distance per row
+            df_cleaned['distance'] = df_cleaned['speed'] * df_cleaned['time_diff']
+
+            # --- Distance by speed zones ---
+
+            # Park zones
+            park_lvr = df_cleaned[df_cleaned['speed'] < 3.46]['distance'].sum()
+            park_hvr = df_cleaned[(df_cleaned['speed'] > 3.46) & (df_cleaned['speed'] <= 5.29)]['distance'].sum()
+            park_vhvr = df_cleaned[df_cleaned['speed'] > 5.29]['distance'].sum()
+
+            # Female zones
+            female_walk = df_cleaned[df_cleaned['speed'] < 1.12]['distance'].sum()
+            female_lvr = df_cleaned[(df_cleaned['speed'] >= 1.12) & (df_cleaned['speed'] <= 2.83)]['distance'].sum()
+            female_hvr = df_cleaned[(df_cleaned['speed'] >= 2.84) & (df_cleaned['speed'] <= 5.10)]['distance'].sum()
+            female_vhvr = df_cleaned[df_cleaned['speed'] > 5.10]['distance'].sum()
+
+            # Male zones
+            male_lvr = df_cleaned[df_cleaned['speed'] < 4.00]['distance'].sum()
+            male_hvr = df_cleaned[(df_cleaned['speed'] >= 4.00) & (df_cleaned['speed'] <= 5.49)]['distance'].sum()
+            male_vhvr = df_cleaned[(df_cleaned['speed'] >= 5.50) & (df_cleaned['speed'] <= 6.99)]['distance'].sum()
+
+            total_distance = df_cleaned['distance'].sum()
+
+            # Append results
+            results.append([
+                filename,
+                removed_rows,
+                percentage_removed,
+                total_distance,
+                max_speed,
+                park_lvr,
+                park_hvr,
+                park_vhvr,
+                female_walk,
+                female_lvr,
+                female_hvr,
+                female_vhvr,
+                male_lvr,
+                male_hvr,
+                male_vhvr,
+            ])
+
+        except Exception as e:
+            print(f"Error processing {filename}: {e}")
+            continue
+
+# Define output DataFrame
+columns = [
+    'filename', 'rows_removed', 'percent_removed', 'total_distance', 'max_speed',
+    'park_lvr', 'park_hvr', 'park_vhvr',
+    'female_walk', 'female_lvr', 'female_hvr', 'female_vhvr',
+    'male_lvr', 'male_hvr', 'male_vhvr'
+]
+
+df_results = pd.DataFrame(results, columns=columns)
+
+
+# Save output
+output_path = r"C:\Users\laura.mcmanus23\Downloads\Matchhalves_results_FULLZONES.csv"
+df_results.to_csv(output_path, index=False)
+
+print(f"Results saved to {output_path}")
