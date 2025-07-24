@@ -1,0 +1,120 @@
+mport os
+import numpy as np
+import pandas as pd
+import glob
+from sklearn.cluster import KMeans
+from sklearn.cluster import SpectralClustering
+
+# Paths
+input_folder = r"C:\Users\laura.mcmanus23\Documents\LMCM_SM2"
+output_folder = r"C:\Users\laura.mcmanus23\Documents\LMCM_SM2\Laplacians"
+
+# Ensure output folder exists
+os.makedirs(output_folder, exist_ok=True)
+
+# Get all CSV file paths in the folder
+taas = glob.glob(os.path.join(input_folder, "*35d376aefacc.csv.similarity.csv"))
+print(f"Number of similarity matrices found: {len(taas)}")
+
+# Initialize aggregated matrix A
+size = 100  # Set size based on your 100x100 matrices  # Set the initial size
+A = np.zeros((size, size))
+
+# Aggregate all similarity matrices
+for i in range(len(taas)):
+    T = np.zeros((size, size))
+    data = pd.read_csv(taas[i])
+    a = np.abs(data[data.columns[1:size]].loc[(data.index >= 0) & (data.index < size)].values)
+    T[0:a.shape[0], 0:a.shape[1]] = a
+    A += T
+
+# Resize matrix by removing specific rows and columns
+A = np.delete(A, (1, 2), axis=1)
+A = np.delete(A, (1, 2), axis=0)
+
+# Compute the degree matrix D and Laplacian matrix L
+D = np.diag(A.sum(axis=1))
+L = D - A
+
+# Extract diagonal values to check for zeros
+DV = L.diagonal()
+
+# Find the first zero in the diagonal
+zero_diag_indices = np.where(DV == 0)[0]
+size = zero_diag_indices[0] if len(zero_diag_indices) > 0 else len(DV)
+
+print(f"Adjusted matrix size based on zero diagonals: {size}")
+
+# Save the final Laplacian matrix
+laplacian_df = pd.DataFrame(L)
+output_filepath = os.path.join(output_folder, "aggregated_laplacian.csv")
+laplacian_df.to_csv(output_filepath, index=False)
+
+print("Aggregated Laplacian matrix saved successfully.")
+
+
+L=L[0:size,0:size]
+D = np.diag(A[0:size,0:size].sum(axis=1))
+#pd.DataFrame(L,columns=np.arange(0, size )).to_csv("L.csv",index_label="Speed")
+L=(np.linalg.inv(np.sqrt(D)).dot(L)).dot(np.linalg.inv(np.sqrt(D)))
+#pd.DataFrame(L,columns=np.arange(0, size )).to_csv("L.csv",index_label="Speed")
+
+vals, vecs = np.linalg.eig(L)
+# sort these based on the eigenvalues
+vecs = vecs[:,np.argsort(vals)]
+vals = vals[np.argsort(vals)]
+
+print(vals)
+print(vecs)
+
+## searching for the first non-zero eigenvalue
+if (vals[0]==0):
+    start_vector=np.where(vals[0:]==0)[0][-1]
+else: start_vector=0
+# kmeans on first three vectors with nonzero eigenvalues
+
+distortions = []
+
+no_exp=7
+Lpd=np.zeros((no_exp,size))
+
+distortions = []
+for i in range(1, no_exp):
+    km = KMeans(
+        n_clusters=i,init='random', n_init=10, max_iter=300, tol=1e-05, random_state=0)
+
+#    b = np.zeros((size,n_cluster))#    print(start_vector)
+#    b[:, :-1] = vecs[:, start_vector:n_cluster + (start_vector - 1)]
+#    b[:, -1] = a = np.arange(1, size + 1) / 10
+
+    b = np.zeros((size,i+1))#
+
+
+    b[:, :-1] = vecs[:, start_vector:(i+1) + (start_vector - 1)]
+
+    b[:, -1] = a = np.arange(1, (size) + 1)/100
+
+    kmeans = KMeans(n_clusters=i)
+#    kmeans.fit(b)
+#    colors = kmeans.labels_
+    clustering = SpectralClustering(n_clusters=i,assign_labels = "discretize",random_state = 0).fit(b)
+    print("clustering ",clustering.labels_)
+    km.fit(b)
+    colors = km.labels_
+    print("colors ",colors)
+
+#    Lpd=Lpd.append(pd.Series(colors),ignore_index=True)
+    distortions.append(km.inertia_)
+
+    Lpd[i]=colors
+#,columns=np.arange(0, size ) / 10
+
+pd.DataFrame(Lpd,columns=np.arange(0, size ) / 10).to_csv("Cluster_analysis_all_samples.csv",index_label="cluster_size")
+
+from matplotlib import pyplot as plt
+
+# plot
+plt.plot(range(1, len(distortions) + 1), distortions, marker='o') # Changed the x-axis range to match the length of distortions
+plt.xlabel('Number of clusters')
+plt.ylabel('Distortion')
+plt.show()
