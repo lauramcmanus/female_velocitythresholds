@@ -1,0 +1,69 @@
+import pandas as pd
+import numpy as np
+import os
+
+def process_file(filename, file_path, results, output_path, similarity_output_folder):
+    """Process a single file."""
+    print(f"Processing {filename} - {file_path}")
+
+    # Read the CSV file
+    data = pd.read_csv(file_path)
+
+    # Data cleaning and outlier detection
+    data_cleaned = data[(data['hdop'] <= 4) & (data['num_satellites'] >= 8)]
+
+    # Calculate the percentage of rows removed
+    rows_removed = len(data) - len(data_cleaned)
+    percentage_removed = (rows_removed / len(data)) * 100 if len(data) > 0 else 0
+
+    # Calculate max consecutive removed rows
+    removed_indices = set(data.index) - set(data_cleaned.index)
+    max_consecutive = 0
+    current_consecutive = 0
+    for i in range(len(data)):
+        if i in removed_indices:
+            current_consecutive += 1
+        else:
+            max_consecutive = max(max_consecutive, current_consecutive)
+            current_consecutive = 0
+    max_consecutive = max(max_consecutive, current_consecutive)
+
+    # Record results
+    results.append({
+        'file': filename,  # Keep the full file name
+        '% rows removed': percentage_removed,
+        'max consec rows removed': max_consecutive
+    })
+
+    # Append results to the output Excel file
+    existing_data = pd.read_excel(output_path) if os.path.exists(output_path) else pd.DataFrame()
+    results_df = pd.DataFrame(results)
+    updated_data = pd.concat([existing_data, results_df], ignore_index=True)
+    updated_data.to_excel(output_path, index=False)
+
+    if percentage_removed >= 3:
+        print("Percentage of rows removed is >= 3%. Skipping similarity matrix creation.")
+        return
+
+    # Create bins and similarity matrix
+    bin_edges = np.arange(0, 10.1, 0.1)
+    bin_labels = [f"{i:.1f}-{i+0.1:.1f}" for i in bin_edges[:-1]]
+    data_cleaned.loc[:, 'speed_bins'] = pd.cut(data_cleaned['speed'], bins=bin_edges, labels=bin_labels, include_lowest=True)
+    similarity_matrix = pd.DataFrame(0, index=bin_labels, columns=bin_labels)
+
+    for i in range(1, len(data_cleaned)):
+        current_bin = data_cleaned['speed_bins'].iloc[i]
+        previous_bin = data_cleaned['speed_bins'].iloc[i - 1]
+        if not pd.isna(current_bin) and not pd.isna(previous_bin):
+            similarity_matrix.loc[previous_bin, current_bin] += 1
+
+    # Zero the diagonal
+    np.fill_diagonal(similarity_matrix.values, 0)
+
+    # Save similarity matrix as CSV with full file name
+    similarity_output_file = os.path.join(similarity_output_folder, f"{filename}.similarity.csv")
+    similarity_matrix.to_csv(similarity_output_file)
+    print(f"Similarity matrix saved to {similarity_output_file}")
+
+
+    
